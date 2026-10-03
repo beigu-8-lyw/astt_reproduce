@@ -31,7 +31,7 @@ def get_train_config():
     parser.add_argument("--train", type=int, default=0, help="train or not")
     parser.add_argument("--n-gpu", type=int, default=1, help="number of gpus to use")
     parser.add_argument("--tensorboard", default=False, action='store_true', help='flag of turnning on tensorboard')
-    parser.add_argument("--model-arch", type=str, default="b16", help='model setting to use', choices=['b16', 'b32', 'l16', 'l32', 'h14'])
+    parser.add_argument("--model-arch", type=str, default="b16", help='model setting to use', choices=['astt', 'b16', 'b32', 'l16', 'l32', 'h14'])
     parser.add_argument("--checkpoint-path", type=str, default="./experiments_andt_ADrone_STE_TTE/checkpoints/best.pth", help="model checkpoint to load weights")
     parser.add_argument("--image-size", type=int, default=384, help="input image size", choices=[224, 384, 256])
     parser.add_argument("--batch-size", type=int, default=8, help="batch size")
@@ -51,6 +51,18 @@ def get_train_config():
     config = eval("get_{}_config".format(config.model_arch))(config)
     process_config(config)
     print_config(config)
+    return config
+
+
+def get_astt_config(config):
+    """Paper architecture; use --model-arch astt in prediction training scripts."""
+    config.patch_size = 32
+    config.emb_dim = 768
+    config.mlp_dim = 3072
+    config.num_heads = 8
+    config.num_layers = 12
+    config.attn_dropout_rate = 0.0
+    config.dropout_rate = 0.1
     return config
 
 

@@ -18,6 +18,78 @@ We aim to update following documents for our repo, will finish soon:
 ## Training
 > UIT-ADrone dataset includes 206,194 video frames. There are 59,186 frames for the training set and 147,005 frames for the test set. Notably, the training set only includes normal samples, whereas the test set consists of normal and abnormal patterns.
 
+### Paper-derived full model implementation
+
+This checkout originally omitted the `model.py` imported by the proposed-model
+training scripts. The added `model.py` reimplements **STE + TTE + CSA** from
+Section III-B and Fig. 2 of the paper. It is not the recovered author file, and
+author/ablation checkpoints are not guaranteed to be compatible.
+
+The prediction path is:
+
+```text
+[B, 4, 3, 384, 384]
+  -> shared spatial transformer: one 768-dimensional CLS per frame
+  -> temporal transformer: temporal CLS plus four frame tokens
+  -> temporal cross-attention: aligned CLS query, all five tokens as keys/values
+  -> residual-enhanced CLS [B, 768]
+  -> Linear + ELU -> [B, 256, 16, 16]
+  -> convolution / transpose convolution -> [B, 3, 256, 256]
+```
+
+Both encoders default to 12 blocks and 8 heads, with 32x32 patches and a
+768-dimensional embedding. The MLP width is 3072, following the existing model
+constructor; the paper does not specify that width. Four input frames and the
+384px input / 256px target sizes follow the existing data pipeline. Frame order
+is preserved, and the spatial encoder shares its parameters across all frames.
+The model uses PyTorch directly without downloading pretrained weights or
+requiring `timm`. Inputs are normalized to [-1, 1]; the output uses Tanh.
+
+Eq. (11) in the paper defines Q, K and V, but its final expression is ambiguous
+about reducing the sequence to a single CLS vector. This implementation uses
+standard `softmax(QK^T / sqrt(d_head)) V` aggregation, including the two
+alignment projections described in Eq. (11) and the original CLS residual in
+Eq. (12). This choice is an explicit interpretation of the paper.
+
+Minimal use:
+
+```python
+import torch
+from model import VisionTransformer
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = VisionTransformer().to(device).eval()
+clip = torch.randn(1, 4, 3, 384, 384, device=device).clamp(-1, 1)
+with torch.no_grad():
+    predicted_frame = model(clip)  # [1, 3, 256, 256]
+```
+
+The existing training configuration still defaults to `b16` (2 layers, 6 heads,
+16px patches). Select the new `astt` preset to pass the paper's architecture
+parameters through a training script, and disable the old checkpoint for a
+fresh model:
+
+```bash
+python train_val_UIT_ADrone.py --model-arch astt --image-size 384 --train 1 --checkpoint-path ''
+```
+
+That script additionally requires its existing dependencies, dataset directories
+and checkpoint output directory to be set up. Its optimizer remains SGD, while
+the paper reports AdamW; this command selects the architecture and does not
+claim to reproduce the paper's training results. `eval.py` and `check_jax.py`
+are legacy classification utilities, not evaluation entry points for this
+frame predictor. The prediction training loss is MSE against the fifth frame.
+
+Run CPU structural and gradient checks with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+These checks cover frame order, cross-attention aggregation and the single CLS
+residual, gradients through all four stages, output shape/range, invalid inputs,
+and the paper-sized default architecture.
+
 ## Inference
 
 ## Dataset description
